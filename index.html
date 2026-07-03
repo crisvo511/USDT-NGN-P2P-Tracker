@@ -72,17 +72,21 @@
   <div class="grid" id="grid"></div>
   <footer>
     <strong>Buy</strong> = what you pay per USDT &nbsp;·&nbsp; <strong>Sell</strong> = what you receive per USDT.
-    Binance / Bybit / OKX show the median of the top-5 P2P ads; Remitano shows its published ask/bid.
-    Auto-refreshes every 30 seconds. Rates are indicative — always confirm on the exchange before trading.
+    Bybit: median of top-5 P2P ads · Remitano/Quidax: official APIs · Monica, Breet, NoOnes, Roqqu: via Monierate.
+    Binance &amp; OKX are excluded — both delisted NGN P2P in 2024.
+    Auto-refreshes every 30 seconds. Rates are indicative — always confirm on the platform before trading.
   </footer>
 </div>
 
 <script>
 const EXCHANGES = {
-  binance:  { name: "Binance",  color: "#F0B90B", url: "https://p2p.binance.com/en/trade/all-payments/USDT?fiat=NGN" },
   bybit:    { name: "Bybit",    color: "#F7A600", url: "https://www.bybit.com/fiat/trade/otc?actionType=1&token=USDT&fiat=NGN" },
-  okx:      { name: "OKX",      color: "#3075EE", url: "https://www.okx.com/p2p-markets/ngn/buy-usdt" },
   remitano: { name: "Remitano", color: "#2AB07F", url: "https://remitano.com/usdt/ng" },
+  quidax:   { name: "Quidax",   color: "#3B5BFF", url: "https://www.quidax.io" },
+  monica:   { name: "Monica",   color: "#7C3AED", url: "https://monica.cash" },
+  breet:    { name: "Breet",    color: "#00A478", url: "https://breet.io" },
+  noones:   { name: "NoOnes",   color: "#111111", url: "https://noones.com/trading/sell-tether/ngnt" },
+  roqqu:    { name: "Roqqu",    color: "#0B0060", url: "https://roqqu.com" },
 };
 const REFRESH_MS = 30000;
 const fmt = n => n == null ? "—" : "₦" + Number(n).toLocaleString("en-NG", { maximumFractionDigits: 2 });

@@ -1,6 +1,11 @@
-// Vercel serverless function: aggregates USDT/NGN P2P rates
-// from Binance, Bybit, OKX and Remitano.
-// GET /api/rates  ->  { updatedAt, rates: { binance: {buy, sell}, ... } }
+// Vercel serverless function: aggregates USDT/NGN rates from
+// Bybit P2P, Remitano, Quidax (direct public APIs) and
+// Monica / Breet / NoOnes / Roqqu (via Monierate platform quotes).
+//
+// GET /api/rates -> { updatedAt, rates: { bybit: {buy, sell, ok}, ... } }
+//
+// Env var required for Monica/Breet/NoOnes/Roqqu:
+//   MONIERATE_API_KEY  (free key from https://account.monierate.com)
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -29,40 +34,15 @@ async function fetchJson(url, options = {}) {
   return res.json();
 }
 
-// ---------- Binance P2P ----------
-// tradeType BUY  = ads where YOU buy USDT (sellers' asks)
-// tradeType SELL = ads where YOU sell USDT (buyers' bids)
-async function binanceSide(tradeType) {
-  const data = await fetchJson(
-    "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        asset: "USDT",
-        fiat: "NGN",
-        tradeType,
-        page: 1,
-        rows: 5,
-        payTypes: [],
-        publisherType: null,
-      }),
-    }
-  );
-  const ads = (data.data || []).map((a) => parseFloat(a.adv.price)).filter(Boolean);
-  if (!ads.length) throw new Error("no ads");
-  // median of top-5 ads to smooth out outlier ads
-  return median(ads);
-}
-
-async function binance() {
-  const [buy, sell] = await Promise.all([binanceSide("BUY"), binanceSide("SELL")]);
-  return { buy, sell };
+function median(nums) {
+  const s = [...nums].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 // ---------- Bybit P2P ----------
-// side "1" = ads selling USDT to you (your BUY price)
-// side "0" = ads buying USDT from you (your SELL price)
+// side "0" = merchants selling USDT (your BUY price)
+// side "1" = merchants buying USDT (your SELL price)
 async function bybitSide(side) {
   const data = await fetchJson("https://api2.bybit.com/fiat/otc/item/online", {
     method: "POST",
@@ -86,70 +66,114 @@ async function bybitSide(side) {
 }
 
 async function bybit() {
-  const [buy, sell] = await Promise.all([bybitSide("1"), bybitSide("0")]);
-  return { buy, sell };
-}
-
-// ---------- OKX P2P ----------
-// side=sell -> merchants selling USDT (your BUY price)
-// side=buy  -> merchants buying USDT (your SELL price)
-async function okxSide(side) {
-  const url =
-    "https://www.okx.com/v3/c2c/tradingOrders/books?quoteCurrency=NGN&baseCurrency=USDT" +
-    `&side=${side}&paymentMethod=all&userType=all&showTrade=false&showFollow=false` +
-    "&showAlreadyTraded=false&isAbleFilter=false&t=" +
-    Date.now();
-  const data = await fetchJson(url, {
-    headers: {
-      Referer: "https://www.okx.com/p2p-markets/ngn/buy-usdt",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  });
-  const list = data?.data?.[side] || [];
-  const prices = list.slice(0, 5).map((o) => parseFloat(o.price)).filter(Boolean);
-  if (!prices.length) throw new Error("no ads");
-  return median(prices);
-}
-
-async function okx() {
-  const [buy, sell] = await Promise.all([okxSide("sell"), okxSide("buy")]);
+  const [buy, sell] = await Promise.all([bybitSide("0"), bybitSide("1")]);
   return { buy, sell };
 }
 
 // ---------- Remitano ----------
-// usdt_ask = price you BUY at, usdt_bid = price you SELL at
+// Remitano's "bid" = the (higher) price you pay to BUY USDT,
+// "ask" = the (lower) price you receive when you SELL — verified against live NGN data.
 async function remitano() {
   const data = await fetchJson(
     "https://api.remitano.com/api/v1/rates/ads?coin_currency=usdt&fiat_currency=ngn"
   );
   const ng = data?.ng;
   if (!ng) throw new Error("no NGN data");
-  const buy = parseFloat(ng.usdt_ask);
-  const sell = parseFloat(ng.usdt_bid);
+  const buy = parseFloat(ng.usdt_bid);
+  const sell = parseFloat(ng.usdt_ask);
   if (!buy && !sell) throw new Error("no rates");
   return { buy: buy || null, sell: sell || null };
 }
 
-function median(nums) {
-  const s = [...nums].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+// ---------- Quidax (spot orderbook, public API) ----------
+// ticker.sell = lowest ask (your BUY price), ticker.buy = highest bid (your SELL price)
+async function quidax() {
+  const data = await fetchJson(
+    "https://app.quidax.io/api/v1/markets/tickers/usdtngn"
+  );
+  const t = data?.data?.ticker;
+  if (!t) throw new Error("no ticker");
+  return { buy: parseFloat(t.sell) || null, sell: parseFloat(t.buy) || null };
+}
+
+// ---------- Monierate (aggregator: Monica, Breet, NoOnes, Roqqu, ...) ----------
+// One call returns buy/sell quotes from every platform ("changer") on the ticker.
+// Docs: https://docs.monierate.com/api-reference/rates/platforms
+const MONIERATE_PLATFORMS = {
+  monica: ["monica"],
+  breet: ["breet"],
+  noones: ["noones", "paxful"],
+  roqqu: ["roqqu"],
+};
+
+async function monieratePlatforms() {
+  const key = process.env.MONIERATE_API_KEY;
+  if (!key) throw new Error("MONIERATE_API_KEY not set");
+
+  let data;
+  try {
+    data = await fetchJson(
+      "https://api.monierate.com/core/rates/platforms.json?ticker=usdtngn",
+      { headers: { api_key: key } }
+    );
+  } catch {
+    // fallback: some plans/pairs expose USD instead of USDT
+    data = await fetchJson(
+      "https://api.monierate.com/core/rates/platforms.json?ticker=usdngn",
+      { headers: { api_key: key } }
+    );
+  }
+
+  const platforms = data?.data?.platforms || [];
+  const out = { _codes: platforms.map((p) => p.code) };
+
+  for (const [name, aliases] of Object.entries(MONIERATE_PLATFORMS)) {
+    const hit = platforms.find((p) =>
+      aliases.some((a) => (p.code || "").toLowerCase().includes(a))
+    );
+    out[name] = hit
+      ? {
+          buy: parseFloat(hit.buy) || null,
+          sell: parseFloat(hit.sell) || null,
+          ok: true,
+          source: "monierate:" + hit.code,
+          lastUpdated: hit.last_updated || null,
+        }
+      : { buy: null, sell: null, ok: false, error: "not listed on Monierate" };
+  }
+  return out;
 }
 
 export default async function handler(req, res) {
-  const sources = { binance, bybit, okx, remitano };
-  const entries = await Promise.allSettled(
-    Object.entries(sources).map(async ([name, fn]) => [name, await fn()])
-  );
+  const direct = { bybit, remitano, quidax };
+
+  const [directResults, monierateResult] = await Promise.all([
+    Promise.allSettled(
+      Object.entries(direct).map(async ([name, fn]) => [name, await fn()])
+    ),
+    monieratePlatforms().then(
+      (v) => ({ ok: true, value: v }),
+      (e) => ({ ok: false, error: e.message })
+    ),
+  ]);
 
   const rates = {};
-  for (let i = 0; i < entries.length; i++) {
-    const name = Object.keys(sources)[i];
-    const r = entries[i];
-    rates[name] =
+  const directNames = Object.keys(direct);
+  directResults.forEach((r, i) => {
+    rates[directNames[i]] =
       r.status === "fulfilled"
         ? { ...r.value[1], ok: true }
         : { buy: null, sell: null, ok: false, error: r.reason?.message || "failed" };
+  });
+
+  if (monierateResult.ok) {
+    const m = monierateResult.value;
+    for (const name of Object.keys(MONIERATE_PLATFORMS)) rates[name] = m[name];
+    if (req.query?.debug) rates._monierateCodes = m._codes;
+  } else {
+    for (const name of Object.keys(MONIERATE_PLATFORMS)) {
+      rates[name] = { buy: null, sell: null, ok: false, error: monierateResult.error };
+    }
   }
 
   res.setHeader("Access-Control-Allow-Origin", "*");
