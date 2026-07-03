@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Naira Rates — USDT/NGN P2P Tracker</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #2d333b;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #3fb950;
+    --red: #f85149;
+    --accent: #58a6ff;
+    --gold: #d29922;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh; padding: 24px 16px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  h1 { font-size: 1.4rem; }
+  h1 span { color: var(--green); }
+  .status { color: var(--muted); font-size: .85rem; margin-bottom: 20px; }
+  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px; position: relative;
+    transition: border-color .3s;
+  }
+  .card.best-buy { border-color: var(--green); }
+  .card.best-sell { border-color: var(--gold); }
+  .badge {
+    position: absolute; top: -10px; right: 12px; font-size: .65rem;
+    padding: 2px 8px; border-radius: 10px; font-weight: 700; letter-spacing: .5px;
+  }
+  .badge.buy { background: var(--green); color: #04260d; }
+  .badge.sell { background: var(--gold); color: #2b2000; }
+  .exch { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-weight: 600; font-size: 1.05rem; }
+  .logo { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: .8rem; color: #fff; }
+  .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: .95rem; }
+  .row .label { color: var(--muted); }
+  .buy-price { color: var(--green); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .sell-price { color: var(--red); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .spread { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; color: var(--muted); font-size: .8rem; display: flex; justify-content: space-between; }
+  .err { color: var(--red); font-size: .85rem; padding: 10px 0; }
+  .skeleton { height: 14px; border-radius: 4px; background: linear-gradient(90deg, #21262d 25%, #2d333b 50%, #21262d 75%); background-size: 200% 100%; animation: sk 1.2s infinite; }
+  @keyframes sk { to { background-position: -200% 0; } }
+  footer { margin-top: 28px; color: var(--muted); font-size: .75rem; line-height: 1.6; }
+  .controls { margin-left: auto; display: flex; gap: 8px; }
+  button {
+    background: var(--card); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: .85rem;
+  }
+  button:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>&#8358; Naira Rates <span>USDT/NGN P2P</span></h1>
+    <div class="controls"><button id="refreshBtn">Refresh now</button></div>
+  </header>
+  <div class="status"><span class="dot"></span><span id="statusText">Loading…</span></div>
+  <div class="grid" id="grid"></div>
+  <footer>
+    <strong>Buy</strong> = what you pay per USDT &nbsp;·&nbsp; <strong>Sell</strong> = what you receive per USDT.
+    Binance / Bybit / OKX show the median of the top-5 P2P ads; Remitano shows its published ask/bid.
+    Auto-refreshes every 30 seconds. Rates are indicative — always confirm on the exchange before trading.
+  </footer>
+</div>
+
+<script>
+const EXCHANGES = {
+  binance:  { name: "Binance",  color: "#F0B90B", url: "https://p2p.binance.com/en/trade/all-payments/USDT?fiat=NGN" },
+  bybit:    { name: "Bybit",    color: "#F7A600", url: "https://www.bybit.com/fiat/trade/otc?actionType=1&token=USDT&fiat=NGN" },
+  okx:      { name: "OKX",      color: "#3075EE", url: "https://www.okx.com/p2p-markets/ngn/buy-usdt" },
+  remitano: { name: "Remitano", color: "#2AB07F", url: "https://remitano.com/usdt/ng" },
+};
+const REFRESH_MS = 30000;
+const fmt = n => n == null ? "—" : "₦" + Number(n).toLocaleString("en-NG", { maximumFractionDigits: 2 });
+const grid = document.getElementById("grid");
+const statusText = document.getElementById("statusText");
+let prev = {};
+
+function skeletonCards() {
+  grid.innerHTML = Object.values(EXCHANGES).map(e => `
+    <div class="card">
+      <div class="exch"><div class="logo" style="background:${e.color}">${e.name[0]}</div>${e.name}</div>
+      <div class="skeleton" style="width:70%;margin:10px 0"></div>
+      <div class="skeleton" style="width:55%;margin:10px 0"></div>
+      <div class="skeleton" style="width:40%"></div>
+    </div>`).join("");
+}
+
+function render(data) {
+  const rates = data.rates || {};
+  let bestBuyKey = null, bestSellKey = null;
+  for (const k of Object.keys(EXCHANGES)) {
+    const r = rates[k];
+    if (r?.ok && r.buy  && (!bestBuyKey  || r.buy  < rates[bestBuyKey].buy))  bestBuyKey  = k; // lowest buy price wins
+    if (r?.ok && r.sell && (!bestSellKey || r.sell > rates[bestSellKey].sell)) bestSellKey = k; // highest sell price wins
+  }
+  grid.innerHTML = Object.entries(EXCHANGES).map(([k, e]) => {
+    const r = rates[k] || {};
+    const badges =
+      (k === bestBuyKey  ? '<span class="badge buy">BEST BUY</span>'  : "") +
+      (k === bestSellKey ? '<span class="badge sell" style="top:auto;bottom:-10px">BEST SELL</span>' : "");
+    const cls = (k === bestBuyKey ? " best-buy" : "") + (k === bestSellKey ? " best-sell" : "");
+    const arrow = (side) => {
+      const p = prev[k]?.[side], c = r[side];
+      if (!p || !c || p === c) return "";
+      return c > p ? " ▲" : " ▼";
+    };
+    const spread = r.buy && r.sell ? fmt(Math.abs(r.buy - r.sell)) : "—";
+    const body = r.ok === false
+      ? `<div class="err">Unavailable (${r.error || "error"})</div>`
+      : `<div class="row"><span class="label">Buy USDT</span><span class="buy-price">${fmt(r.buy)}${arrow("buy")}</span></div>
+         <div class="row"><span class="label">Sell USDT</span><span class="sell-price">${fmt(r.sell)}${arrow("sell")}</span></div>
+         <div class="spread"><span>Spread</span><span>${spread}</span></div>`;
+    return `<div class="card${cls}">${badges}
+      <div class="exch"><div class="logo" style="background:${e.color}">${e.name[0]}</div>
+        <a href="${e.url}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${e.name}</a></div>
+      ${body}</div>`;
+  }).join("");
+  prev = JSON.parse(JSON.stringify(rates));
+}
+
+async function load() {
+  try {
+    statusText.textContent = "Updating…";
+    const res = await fetch("/api/rates");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    render(data);
+    statusText.textContent = "Updated " + new Date(data.updatedAt).toLocaleTimeString() + " · refreshes every 30s";
+  } catch (err) {
+    statusText.textContent = "Failed to load rates (" + err.message + ") — retrying…";
+  }
+}
+
+document.getElementById("refreshBtn").addEventListener("click", load);
+skeletonCards();
+load();
+setInterval(load, REFRESH_MS);
+</script>
+</body>
+</html>
