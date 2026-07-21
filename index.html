@@ -51,6 +51,21 @@
   .sell-price { color: var(--red); font-weight: 700; font-variant-numeric: tabular-nums; }
   .spread { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; color: var(--muted); font-size: .8rem; display: flex; justify-content: space-between; }
   .err { color: var(--red); font-size: .85rem; padding: 10px 0; }
+  .promo {
+    display: block; margin-top: 12px; padding: 9px 12px; border-radius: 9px;
+    background: linear-gradient(90deg, #2AB07F, #1f8f65);
+    color: #fff; font-weight: 700; font-size: .82rem; text-align: center;
+    text-decoration: none; box-shadow: 0 0 0 0 rgba(42,176,127,.55);
+    animation: glow 2.2s infinite; transition: transform .15s;
+  }
+  .promo:hover { transform: scale(1.03); }
+  .promo:active { transform: scale(.98); }
+  @keyframes glow {
+    0% { box-shadow: 0 0 0 0 rgba(42,176,127,.55); }
+    70% { box-shadow: 0 0 0 10px rgba(42,176,127,0); }
+    100% { box-shadow: 0 0 0 0 rgba(42,176,127,0); }
+  }
+  .disclaimer { color: var(--muted); font-size: .8rem; font-style: italic; margin: -10px 0 18px; }
   .skeleton { height: 14px; border-radius: 4px; background: linear-gradient(90deg, #21262d 25%, #2d333b 50%, #21262d 75%); background-size: 200% 100%; animation: sk 1.2s infinite; }
   @keyframes sk { to { background-position: -200% 0; } }
   footer { margin-top: 28px; color: var(--muted); font-size: .75rem; line-height: 1.6; }
@@ -69,6 +84,7 @@
     <div class="controls"><button id="refreshBtn">Refresh now</button></div>
   </header>
   <div class="status"><span class="dot"></span><span id="statusText">Loading…</span></div>
+  <div class="disclaimer">Note: Actual execution price on each exchange may vary due to slippage and order size.</div>
   <div class="grid" id="grid"></div>
   <footer>
     <strong>Buy</strong> = what you pay per USDT &nbsp;·&nbsp; <strong>Sell</strong> = what you receive per USDT.
@@ -81,7 +97,8 @@
 <script>
 const EXCHANGES = {
   bybit:    { name: "Bybit",    color: "#F7A600", url: "https://www.bybit.com/fiat/trade/otc?actionType=1&token=USDT&fiat=NGN" },
-  remitano: { name: "Remitano", color: "#2AB07F", url: "https://remitano.com/usdt/ng" },
+  remitano: { name: "Remitano", color: "#2AB07F", url: "https://remitano.com/usdt/ng",
+              promo: { text: "🎁 Fee cashback 50–100% — Get voucher", url: "https://remitano.com/vouchers" } },
   quidax:   { name: "Quidax",   color: "#3B5BFF", url: "https://www.quidax.io" },
   monica:   { name: "Monica",   color: "#7C3AED", url: "https://monica.cash" },
   breet:    { name: "Breet",    color: "#00A478", url: "https://breet.io" },
@@ -129,10 +146,13 @@ function render(data) {
       : `<div class="row"><span class="label">Buy USDT</span><span class="buy-price">${fmt(r.buy)}${arrow("buy")}</span></div>
          <div class="row"><span class="label">Sell USDT</span><span class="sell-price">${fmt(r.sell)}${arrow("sell")}</span></div>
          <div class="spread"><span>Spread</span><span>${spread}</span></div>`;
+    const promo = e.promo
+      ? `<a class="promo" href="${e.promo.url}" target="_blank" rel="noopener">${e.promo.text}</a>`
+      : "";
     return `<div class="card${cls}">${badges}
       <div class="exch"><div class="logo" style="background:${e.color}">${e.name[0]}</div>
         <a href="${e.url}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${e.name}</a></div>
-      ${body}</div>`;
+      ${body}${promo}</div>`;
   }).join("");
   prev = JSON.parse(JSON.stringify(rates));
 }
